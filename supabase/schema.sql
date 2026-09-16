@@ -1,0 +1,2 @@
+-- CampusDrop Phase 3 migration is applied to the connected project.
+-- See README.md for the admin promotion query and storage notes.
