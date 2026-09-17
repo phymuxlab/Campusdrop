@@ -48,3 +48,6 @@ A mobile-first student marketplace by **MUXLAB**.
 
 ### Verification note
 A full `next build` could not be executed in this audit environment because `npm install` repeatedly timed out before dependencies could be installed. The source was statically inspected and the previously reported Vercel TypeScript failure was addressed. The authoritative final check should be the next Vercel build after pushing this package.
+
+## Phase 6 database migration
+Run `supabase/phase6-messaging-admin.sql` on the existing CampusDrop Supabase project before testing chat image uploads, delivery/seen ticks, edit/delete, and admin listing removal.
