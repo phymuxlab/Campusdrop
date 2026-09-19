@@ -81,7 +81,7 @@ export default function Product() {
             <hr className="productRule" />
             <h3>Description</h3>
             <p className="productDescription">{item.description || 'No description provided.'}</p>
-            <div className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name || 'CampusDrop seller'} size="md"/><div><b>{seller?.full_name || 'CampusDrop seller'}</b><div className="muted">Seller</div></div></div></div>
+            <Link href={`/users/${item.seller_id}`} className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name || 'CampusDrop seller'} size="md"/><div><b>{seller?.full_name || 'CampusDrop seller'}</b><div className="muted">View public profile</div></div></div></Link>
             <div className="actionsRow productActions"><button className="btn green" onClick={chat}><MessageCircle size={17}/> Chat seller</button><button className="btn light" onClick={fav}><Heart size={17}/> {saved ? 'Saved' : 'Save'}</button><button className="btn light" onClick={() => setReporting(true)}><Flag size={17}/> Report</button></div>
             {reporting && <div className="notice reportNotice">Report this listing? <button className="btn danger" onClick={report}>Report</button><button className="btn light" onClick={() => setReporting(false)}>Cancel</button></div>}
             {user?.id === item.seller_id && <button className="btn danger" style={{ marginTop: 14 }} onClick={async () => { await createClient().from('listings').update({ status: 'hidden' }).eq('id', id); window.location.assign('/my-listings'); }}><Trash2 size={17}/> Hide listing</button>}

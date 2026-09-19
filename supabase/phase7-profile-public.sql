@@ -1,0 +1,3 @@
+-- Public profile additions used by the Phase 7 UI.
+-- The private contact table is protected by owner-only RLS.
+-- Do not add phone or WhatsApp to public profile queries.

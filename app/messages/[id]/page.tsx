@@ -253,18 +253,17 @@ export default function Chat() {
                 {menuId === message.id && !deleted && <div className={`messageMenu ${mine ? 'menuMine' : 'menuTheir'}`}>
                   {mine && canEdit && <button onClick={() => startEdit(message)}><Pencil size={15}/> Edit</button>}
                   {mine && <button onClick={() => deleteMessage(message)}><Trash2 size={15}/> Delete</button>}
-                  <button onClick={() => showInfo(message)}><Info size={15}/> Info</button>
+                  {mine && <button onClick={() => showInfo(message)}><Info size={15}/> Info</button>}
                   <button onClick={() => setMenuId(null)}><X size={15}/> Close</button>
                 </div>}
 
                 {editingId === message.id && <div className="editBox"><textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} maxLength={2000} /><div><button className="btn light" onClick={() => setEditingId(null)}>Cancel</button><button className="btn green" onClick={() => saveEdit(message)}>Save</button></div></div>}
 
-                {infoId === message.id && <div className="messageInfo">
-                  <b>Message info</b>
-                  <div><span>Sent</span><span>{formatFullTime(message.created_at)}</span></div>
-                  <div><span>Delivered</span><span>{message.delivered_at ? formatFullTime(message.delivered_at) : 'Not delivered yet'}</span></div>
-                  <div><span>Seen</span><span>{message.read_at ? formatFullTime(message.read_at) : 'Not seen yet'}</span></div>
-                  <button className="btn light" onClick={() => setInfoId(null)}>Close</button>
+                {infoId === message.id && mine && <div className="messageInfoModalBackdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setInfoId(null); }}>
+                  <div className="messageInfoModal" role="dialog" aria-modal="true" aria-labelledby={`message-info-${message.id}`}>
+                    <div className="messageInfoModalHead"><h3 id={`message-info-${message.id}`}>Message info</h3><button className="messageInfoClose" onClick={() => setInfoId(null)} aria-label="Close message info"><X size={18}/></button></div>
+                    <div className="messageInfoRows"><div><span>Sent</span><span>{formatFullTime(message.created_at)}</span></div><div><span>Delivered</span><span>{message.delivered_at ? formatFullTime(message.delivered_at) : 'Not delivered yet'}</span></div><div><span>Seen</span><span>{message.read_at ? formatFullTime(message.read_at) : 'Not seen yet'}</span></div></div>
+                  </div>
                 </div>}
               </div>
             );
