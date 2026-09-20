@@ -1,49 +1,17 @@
 'use client';
-
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ShieldCheck, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, Trash2, XCircle, FileCheck2 } from 'lucide-react';
 import { createClient } from '../../lib/supabase';
+import { PageSkeleton } from '../../components/skeleton';
 
 export default function Admin() {
-  const [reports, setReports] = useState<any[]>([]);
-  const [allowed, setAllowed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [actionId, setActionId] = useState<string | null>(null);
-  const [error, setError] = useState('');
-
-  async function load() {
-    const s = createClient();
-    const { data: { user } } = await s.auth.getUser();
-    if (!user) { window.location.assign('/auth/login?next=/admin'); return; }
-    const { data: p } = await s.from('profiles').select('role').eq('id', user.id).single();
-    if (p?.role !== 'admin') { setLoading(false); return; }
-    setAllowed(true);
-    const { data, error: reportError } = await s.from('reports').select('*, listings(title,status)').order('created_at', { ascending: false });
-    if (reportError) setError(reportError.message); else setReports((data || []).filter((r: any) => r.status === 'pending'));
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function action(report: any, status: 'removed' | 'dismissed') {
-    setActionId(report.id); setError('');
-    const s = createClient();
-    try {
-      if (status === 'removed') {
-        const { error: listingError } = await s.from('listings').update({ status: 'hidden' }).eq('id', report.listing_id);
-        if (listingError) throw listingError;
-      }
-      const { data: { user } } = await s.auth.getUser();
-      const { error: reportError } = await s.from('reports').update({ status, reviewed_by: user?.id || null, reviewed_at: new Date().toISOString() }).eq('id', report.id);
-      if (reportError) throw reportError;
-      setReports((current: any[]) => current.filter((r: any) => r.id !== report.id));
-    } catch (err: any) {
-      setError(err?.message || 'Moderation action failed.');
-    } finally { setActionId(null); }
-  }
-
-  if (loading) return <main className="section"><div className="container"><div className="empty">Loading moderation queue...</div></div></main>;
-  if (!allowed) return <main className="section"><div className="container"><div className="empty"><ShieldCheck size={30}/><h2>Admin access required</h2><p>Promote a trusted account to role <b>admin</b> in Supabase before using this area.</p></div></div></main>;
-
-  return <main className="section"><div className="container"><div className="eyebrow">Moderation</div><h1>Admin dashboard</h1>{error && <div className="error">{error}</div>}<div className="panel adminQueue">{!reports.length ? <div className="empty"><CheckCircle2 size={30}/><p>No pending reports.</p></div> : reports.map((r) => <div className="noticeRow adminReport" key={r.id}><ShieldCheck size={20}/><div className="adminReportCopy"><b>{r.listings?.title || 'Listing'}</b><div className="muted">{r.reason} · Reported {new Date(r.created_at).toLocaleString()}</div><div className="muted">Current listing status: {r.listings?.status || 'unknown'}</div></div><button className="btn danger" disabled={actionId === r.id} onClick={() => action(r, 'removed')}><Trash2 size={16}/> Remove listing</button><button className="btn light" disabled={actionId === r.id} onClick={() => action(r, 'dismissed')}><XCircle size={16}/> Dismiss</button></div>)}</div></div></main>;
+  const [reports,setReports]=useState<any[]>([]); const [verifications,setVerifications]=useState<any[]>([]); const [allowed,setAllowed]=useState(false); const [loading,setLoading]=useState(true); const [actionId,setActionId]=useState<string|null>(null); const [error,setError]=useState('');
+  async function load(){const s=createClient();const {data:{user}}=await s.auth.getUser();if(!user){window.location.assign('/auth/login?next=/admin');return}const {data:p}=await s.from('profiles').select('role').eq('id',user.id).single();if(p?.role!=='admin'){setLoading(false);return}setAllowed(true);const [{data:rs,error:re},{data:vs,error:ve}]=await Promise.all([s.from('reports').select('*, listings(title,status)').order('created_at',{ascending:false}),s.from('student_verifications').select('*').eq('status','pending').order('submitted_at',{ascending:true})]);if(re||ve)setError((re||ve)?.message||'Could not load admin queue.');setReports((rs||[]).filter((r:any)=>r.status==='pending'));setVerifications(vs||[]);setLoading(false)}
+  useEffect(()=>{load()},[]);
+  async function action(report:any,status:'removed'|'dismissed'){setActionId(report.id);setError('');const s=createClient();try{if(status==='removed'){const {error:e}=await s.from('listings').update({status:'hidden'}).eq('id',report.listing_id);if(e)throw e}const {data:{user}}=await s.auth.getUser();const {error:e}=await s.from('reports').update({status,reviewed_by:user?.id||null,reviewed_at:new Date().toISOString()}).eq('id',report.id);if(e)throw e;setReports(c=>c.filter(r=>r.id!==report.id))}catch(e:any){setError(e?.message||'Moderation action failed.')}finally{setActionId(null)}}
+  async function openDocument(path:string){const {data,error}=await createClient().storage.from('verification-documents').createSignedUrl(path,300);if(error||!data?.signedUrl){setError(error?.message||'Could not open verification document.');return}window.open(data.signedUrl,'_blank','noopener,noreferrer')}
+  async function verify(v:any,approve:boolean){setActionId(v.id);setError('');const s=createClient();try{const {data:{user}}=await s.auth.getUser();const {error:e}=await s.from('student_verifications').update({status:approve?'approved':'rejected',reviewed_by:user?.id||null,reviewed_at:new Date().toISOString(),rejection_reason:approve?null:'The submitted document could not be verified. Please submit a current, clearer document.'}).eq('id',v.id);if(e)throw e;setVerifications(c=>c.filter(x=>x.id!==v.id))}catch(e:any){setError(e?.message||'Verification action failed.')}finally{setActionId(null)}}
+  if(loading)return <main className="section"><div className="container"><PageSkeleton rows={8}/></div></main>;
+  if(!allowed)return <main className="section"><div className="container"><div className="empty"><ShieldCheck size={30}/><h2>Admin access required</h2><p>Promote a trusted account to role <b>admin</b> in Supabase before using this area.</p></div></div></main>;
+  return <main className="section"><div className="container"><div className="eyebrow">Moderation & trust</div><h1>Admin dashboard</h1>{error&&<div className="error">{error}</div>}<h2>Student verification</h2><div className="panel adminQueue">{!verifications.length?<div className="empty"><CheckCircle2 size={30}/><p>No pending student verifications.</p></div>:verifications.map(v=><div className="noticeRow adminReport" key={v.id}><FileCheck2 size={20}/><div className="adminReportCopy"><b>{v.institution} · {v.campus}</b><div className="muted">{v.department||'Department not provided'} · {v.level||'Level not provided'} · Submitted {new Date(v.submitted_at).toLocaleString()}</div><div className="muted">Document: {v.document_path.split('/').pop()}</div></div><button className="btn light" onClick={()=>openDocument(v.document_path)}>Open document</button><button className="btn green" disabled={actionId===v.id} onClick={()=>verify(v,true)}><CheckCircle2 size={16}/> Approve</button><button className="btn danger" disabled={actionId===v.id} onClick={()=>verify(v,false)}><XCircle size={16}/> Reject</button></div>)}</div><h2 style={{marginTop:32}}>Listing reports</h2><div className="panel adminQueue">{!reports.length?<div className="empty"><CheckCircle2 size={30}/><p>No pending reports.</p></div>:reports.map(r=><div className="noticeRow adminReport" key={r.id}><ShieldCheck size={20}/><div className="adminReportCopy"><b>{r.listings?.title||'Listing'}</b><div className="muted">{r.reason} · Reported {new Date(r.created_at).toLocaleString()}</div></div><button className="btn danger" disabled={actionId===r.id} onClick={()=>action(r,'removed')}><Trash2 size={16}/> Remove listing</button><button className="btn light" disabled={actionId===r.id} onClick={()=>action(r,'dismissed')}><XCircle size={16}/> Dismiss</button></div>)}</div></div></main>;
 }

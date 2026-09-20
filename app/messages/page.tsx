@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { MessageCircle } from 'lucide-react';
 import { createClient } from '../../lib/supabase';
 import { Avatar } from '../../components/avatar';
+import {PageSkeleton} from '../../components/skeleton';
 
 export default function Messages() {
   const [items, setItems] = useState<any[]>([]);
@@ -53,7 +54,7 @@ export default function Messages() {
       <div className="container messagesPage">
         <div className="eyebrow">Inbox</div>
         <h1>Messages</h1>
-        {loading ? <div className="panel empty">Loading conversations...</div> : !items.length ? (
+        {loading ? <PageSkeleton rows={6}/> : !items.length ? (
           <div className="empty">
             <MessageCircle size={30} />
             <p>No conversations yet.</p>

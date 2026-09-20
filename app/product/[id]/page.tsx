@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Flag, Heart, MessageCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Flag, Heart, MessageCircle, Trash2, Share2, Bell, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '../../../lib/supabase';
 import { Avatar } from '../../../components/avatar';
+import { PageSkeleton } from '../../../components/skeleton';
 
 export default function Product() {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +16,7 @@ export default function Product() {
   const [reporting, setReporting] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
   const [error, setError] = useState('');
+  const [sellerVerified, setSellerVerified] = useState(false);
 
   useEffect(() => { load(); }, [id]);
 
@@ -29,9 +31,12 @@ export default function Product() {
     if (listingError) { setError(listingError.message); return; }
     const images = [...(data?.listing_images || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     setItem({ ...data, listing_images: images });
+    const { data: verified } = await supabase.from('student_verifications').select('status').eq('user_id', data.seller_id).eq('status', 'approved').maybeSingle();
+    setSellerVerified(!!verified);
     if (currentUser) {
       const { data: favourite } = await supabase.from('favourites').select('listing_id').eq('listing_id', id).eq('user_id', currentUser.id).maybeSingle();
       setSaved(!!favourite);
+      await supabase.from('recently_viewed').upsert({ user_id: currentUser.id, listing_id: id, viewed_at: new Date().toISOString() }, { onConflict: 'user_id,listing_id' });
     }
   }
 
@@ -51,13 +56,15 @@ export default function Product() {
     if (data) window.location.assign(`/messages/${data.id}`);
   }
 
+  async function share(){try{if(navigator.share) await navigator.share({title:item?.title||'CampusDrop listing',text:`${item?.title||'CampusDrop listing'} on CampusDrop`,url:window.location.href});else await navigator.clipboard.writeText(window.location.href);setError('Listing link copied.')}catch{}}
+  async function priceAlert(){if(!user){window.location.assign(`/auth/login?next=/product/${id}`);return}const {error:e}=await createClient().from('price_alerts').upsert({user_id:user.id,listing_id:id,target_price:Number(item?.price||0)},{onConflict:'user_id,listing_id'});if(e)setError(e.message);else setError('Price alert saved. We will use it when price-alert notifications are available.')}
   async function report() {
     if (!user) { window.location.assign(`/auth/login?next=/product/${id}`); return; }
     const { error: reportError } = await createClient().from('reports').insert({ listing_id: id, reporter_id: user.id, reason: 'Suspicious or inappropriate listing' });
     if (reportError) setError(reportError.message); else setReporting(false);
   }
 
-  if (!item) return <main className="section"><div className="container"><div className="empty">{error || 'Loading listing...'}</div></div></main>;
+  if (!item) return <main className="section"><div className="container">{error ? <div className="error">{error}</div> : <PageSkeleton rows={7}/>}</div></main>;
 
   const images = item.listing_images || [];
   const image = images[selectedImage]?.url || images[0]?.url || '';
@@ -81,8 +88,8 @@ export default function Product() {
             <hr className="productRule" />
             <h3>Description</h3>
             <p className="productDescription">{item.description || 'No description provided.'}</p>
-            <Link href={`/users/${item.seller_id}`} className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name || 'CampusDrop seller'} size="md"/><div><b>{seller?.full_name || 'CampusDrop seller'}</b><div className="muted">View public profile</div></div></div></Link>
-            <div className="actionsRow productActions"><button className="btn green" onClick={chat}><MessageCircle size={17}/> Chat seller</button><button className="btn light" onClick={fav}><Heart size={17}/> {saved ? 'Saved' : 'Save'}</button><button className="btn light" onClick={() => setReporting(true)}><Flag size={17}/> Report</button></div>
+            <Link href={`/users/${item.seller_id}`} className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name || 'CampusDrop seller'} size="md"/><div><b>{seller?.full_name || 'CampusDrop seller'} {sellerVerified&&<span className="verifiedBadge"><ShieldCheck size={12}/> Verified</span>}</b><div className="muted">View public profile</div></div></div></Link>
+            <div className="actionsRow productActions"><button className="btn green" onClick={chat}><MessageCircle size={17}/> Chat seller</button><button className="btn light" onClick={fav}><Heart size={17}/> {saved ? 'Saved' : 'Save'}</button><button className="btn light" onClick={share}><Share2 size={17}/> Share</button><button className="btn light" onClick={priceAlert}><Bell size={17}/> Price alert</button><button className="btn light" onClick={() => setReporting(true)}><Flag size={17}/> Report</button></div>
             {reporting && <div className="notice reportNotice">Report this listing? <button className="btn danger" onClick={report}>Report</button><button className="btn light" onClick={() => setReporting(false)}>Cancel</button></div>}
             {user?.id === item.seller_id && <button className="btn danger" style={{ marginTop: 14 }} onClick={async () => { await createClient().from('listings').update({ status: 'hidden' }).eq('id', id); window.location.assign('/my-listings'); }}><Trash2 size={17}/> Hide listing</button>}
           </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Package, MapPin } from 'lucide-react';
+import { ArrowLeft, Package, MapPin, ShieldCheck, Ban } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { createClient } from '../../../lib/supabase';
 import { Avatar } from '../../../components/avatar';
@@ -16,6 +16,7 @@ export default function PublicUserProfile() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [verified, setVerified] = useState(false); const [blocked,setBlocked]=useState(false); const [blockMessage,setBlockMessage]=useState('');
 
   useEffect(() => {
     (async () => {
@@ -27,11 +28,17 @@ export default function PublicUserProfile() {
       if (profileError || !p) setError('This profile could not be found.');
       else setProfile(p);
       setListings((l || []) as Listing[]);
+      const { data: v } = await supabase.from('student_verifications').select('status').eq('user_id', id).eq('status', 'approved').maybeSingle();
+      setVerified(!!v);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.id !== id) { const { data: b } = await supabase.from('blocked_users').select('blocked_id').eq('blocker_id', user.id).eq('blocked_id', id).maybeSingle(); setBlocked(!!b); }
       setLoading(false);
     })();
   }, [id]);
 
-  if (loading) return <main className="section"><div className="container"><div className="empty">Loading profile...</div></div></main>;
+  if (loading) return <main className="section"><div className="container"><div className="skeletonPage"><span className="skeleton skeletonTitle"/><span className="skeleton skeletonLine"/><span className="skeleton skeletonLine"/></div></div></main>;
+  async function toggleBlock(){const s=createClient();const {data:{user}}=await s.auth.getUser();if(!user)return;if(blocked){await s.from('blocked_users').delete().eq('blocker_id',user.id).eq('blocked_id',id);setBlocked(false);setBlockMessage('User unblocked.')}else{const {error:e}=await s.from('blocked_users').insert({blocker_id:user.id,blocked_id:id});if(e)setBlockMessage(e.message);else{setBlocked(true);setBlockMessage('User blocked. Their profile remains hidden from your future interactions.')}}}
+
   if (error || !profile) return <main className="section"><div className="container"><div className="empty">{error || 'Profile not found.'}</div></div></main>;
 
   return (
@@ -42,7 +49,7 @@ export default function PublicUserProfile() {
           <div className="row">
             <Avatar url={profile.avatar_url} name={profile.full_name || 'Student'} size="lg" />
             <div>
-              <h1>{profile.full_name || 'CampusDrop student'}</h1>
+              <h1>{profile.full_name || 'CampusDrop student'} {verified&&<span className="verifiedBadge"><ShieldCheck size={14}/> Verified Student</span>}</h1>
               <p className="muted">{profile.campus || 'Campus not set'}</p>
               {profile.location && <p className="profilePublicMeta"><MapPin size={15}/> {profile.location}</p>}
             </div>

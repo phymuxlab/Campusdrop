@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Check, CheckCheck, ImagePlus, Info, MoreVertical, Paperclip, Pencil, Send, Trash2, X } from 'lucide-react';
 import { createClient } from '../../../lib/supabase';
 import { Avatar } from '../../../components/avatar';
+import { PageSkeleton } from '../../../components/skeleton';
 
 const EDIT_WINDOW_MS = 10 * 60 * 1000;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -49,7 +50,12 @@ export default function Chat() {
       .eq('conversation_id', id)
       .order('created_at', { ascending: true });
     if (messageError) throw messageError;
-    setMsgs(data || []);
+    const hydrated = await Promise.all((data || []).map(async (message: any) => {
+      if (!message.attachment_path) return message;
+      const { data: signed } = await supabase.storage.from('message-attachments').createSignedUrl(message.attachment_path, 60 * 60);
+      return { ...message, attachment_url: signed?.signedUrl || '' };
+    }));
+    setMsgs(hydrated);
 
     const { error: deliveredError } = await supabase.rpc('mark_messages_delivered', { p_conversation_id: id });
     if (deliveredError) console.warn('Delivery update:', deliveredError.message);
@@ -94,7 +100,9 @@ export default function Chat() {
           .channel(`chat-${id}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` }, async (payload) => {
             if (payload.eventType === 'INSERT') {
-              setMsgs((current) => current.some((m) => m.id === payload.new.id) ? current : [...current, payload.new]);
+              const incoming = payload.new as any;
+              if (incoming.attachment_path) { const { data: signed } = await supabase.storage.from('message-attachments').createSignedUrl(incoming.attachment_path, 60 * 60); incoming.attachment_url = signed?.signedUrl || ''; }
+              setMsgs((current) => current.some((m) => m.id === incoming.id) ? current : [...current, incoming]);
               if (payload.new.sender_id !== currentUser.id) {
                 await supabase.rpc('mark_messages_delivered', { p_conversation_id: id });
                 await supabase.rpc('mark_messages_seen', { p_conversation_id: id });
@@ -232,7 +240,7 @@ export default function Chat() {
         {error && <div className="chatError">{error}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div>}
 
         <div className="chatBody whatsappBody">
-          {loading ? <div className="chatLoading">Loading conversation...</div> : !msgs.length ? <div className="chatEmpty"><MessageCirclePlaceholder /><b>Start the conversation</b><span>Ask about the item, price or availability.</span></div> : msgs.map((message) => {
+          {loading ? <div className="chatLoading"><PageSkeleton rows={5}/></div> : !msgs.length ? <div className="chatEmpty"><MessageCirclePlaceholder /><b>Start the conversation</b><span>Ask about the item, price or availability.</span></div> : msgs.map((message) => {
             const mine = message.sender_id === user?.id;
             const deleted = !!message.deleted_at;
             const canEdit = mine && !deleted && Date.now() - new Date(message.created_at).getTime() <= EDIT_WINDOW_MS && !!message.body;

@@ -27,5 +27,15 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) return NextResponse.redirect(new URL('/auth/login?error=oauth', url.origin));
 
+  const { data: { user } } = await supabase.auth.getUser();
+  const isGoogle = !!user?.identities?.some((identity: any) => identity.provider === 'google');
+  if (user && isGoogle) {
+    const { data: profile } = await supabase.from('profiles').select('full_name,campus,location').eq('id', user.id).maybeSingle();
+    if (!profile?.full_name || !profile?.campus || !profile?.location) {
+      const complete = new URL('/auth/complete-profile', url.origin);
+      complete.searchParams.set('next', next);
+      return NextResponse.redirect(complete);
+    }
+  }
   return NextResponse.redirect(new URL(next, url.origin));
 }
