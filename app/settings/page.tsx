@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ImagePlus, Save, UserRound, ShieldCheck } from 'lucide-react';
 import { createClient } from '../../lib/supabase';
 import { Avatar } from '../../components/avatar';
-import { PageSkeleton } from '../../components/skeleton';
 
 const presets = ['default:campus', 'default:drop', 'default:green', 'default:classic'];
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -32,7 +31,7 @@ export default function Settings() {
   const [location, setLocation] = useState('');
   const [phone, setPhone] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('default:campus'); const [prefs,setPrefs]=useState({messages:true,favourites:true,price_alerts:true,system:true});
+  const [avatarUrl, setAvatarUrl] = useState('default:campus');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -45,10 +44,9 @@ export default function Settings() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { window.location.assign('/auth/login?next=/settings'); return; }
       setUser(user);
-      const [{ data: profile }, { data: privateProfile }, { data: pref }] = await Promise.all([
+      const [{ data: profile }, { data: privateProfile }] = await Promise.all([
         supabase.from('profiles').select('full_name,campus,location,avatar_url').eq('id', user.id).maybeSingle(),
         supabase.from('profile_private').select('phone,whatsapp').eq('user_id', user.id).maybeSingle(),
-        supabase.from('notification_preferences').select('messages,favourites,price_alerts,system').eq('user_id', user.id).maybeSingle(),
       ]);
       setName(profile?.full_name || user.user_metadata?.full_name || '');
       setCampus(profile?.campus || '');
@@ -56,7 +54,6 @@ export default function Settings() {
       setAvatarUrl(profile?.avatar_url || 'default:campus');
       setPhone(privateProfile?.phone || '');
       setWhatsapp(privateProfile?.whatsapp || '');
-      if (pref) setPrefs({messages:!!pref.messages,favourites:!!pref.favourites,price_alerts:!!pref.price_alerts,system:!!pref.system});
     })();
   }, []);
 
@@ -73,9 +70,7 @@ export default function Settings() {
     const { error: profileError } = await supabase.from('profiles').update({ full_name: cleanName, campus: cleanCampus, location: cleanLocation || null, avatar_url: avatarUrl }).eq('id', user.id);
     if (profileError) { setError(profileError.message); setSaving(false); return; }
     const { error: privateError } = await supabase.from('profile_private').upsert({ user_id: user.id, phone: cleanPhone || null, whatsapp: cleanWhatsapp || null }, { onConflict: 'user_id' });
-    if (privateError) { setError(privateError.message); setSaving(false); return; }
-    const { error: prefError } = await supabase.from('notification_preferences').upsert({ user_id: user.id, ...prefs, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-    if (prefError) setError(prefError.message); else setMessage('Settings saved.');
+    if (privateError) setError(privateError.message); else setMessage('Settings saved.');
     setSaving(false);
   }
 
@@ -95,8 +90,6 @@ export default function Settings() {
     finally { setUploading(false); }
   }
 
-  if (!user) return <main className="section"><div className="container"><PageSkeleton rows={7}/></div></main>;
-
   return <main className="section"><div className="container settingsLayout">
     <div><div className="eyebrow">Account</div><h1>Settings</h1><p className="muted">Manage your profile and private contact details.</p></div>
     <div className="panel settingsCard">
@@ -108,7 +101,7 @@ export default function Settings() {
       <div className="field"><label htmlFor="campus">Campus</label><input id="campus" value={campus} maxLength={120} placeholder="e.g. TASUED" onChange={e=>setCampus(e.target.value)} /></div>
       <div className="field"><label htmlFor="location">Location <span className="muted">(public)</span></label><input id="location" value={location} maxLength={160} placeholder="e.g. Ijebu-Ode" onChange={e=>setLocation(e.target.value)} /></div>
       <div className="field"><label>Choose a default avatar</label><div className="avatarChoices">{presets.map(p=><button key={p} type="button" className={`avatarChoice ${avatarUrl===p?'selected':''}`} onClick={()=>setAvatarUrl(p)} aria-label={`Choose ${p.replace('default:','')} avatar`}><Avatar url={p} size="md" />{avatarUrl===p&&<Check size={15}/>}</button>)}</div></div>
-      <div className="privateContactBox"><div className="privateContactHead"><ShieldCheck size={18}/><div><b>Private contact details</b><p className="muted">Only you can read or edit these fields. They are never shown on public profiles.</p></div></div><div className="privateGrid"><div className="field"><label htmlFor="phone">Phone number</label><input id="phone" value={phone} maxLength={30} inputMode="tel" onChange={e=>setPhone(e.target.value)} /></div><div className="field"><label htmlFor="whatsapp">WhatsApp number</label><input id="whatsapp" value={whatsapp} maxLength={30} inputMode="tel" onChange={e=>setWhatsapp(e.target.value)} /></div></div></div><div className="privateContactBox"><div className="privateContactHead"><ShieldCheck size={18}/><div><b>Notification preferences</b><p className="muted">Choose which in-app notification categories CampusDrop should use.</p></div></div><div className="prefGrid">{([['messages','Messages'],['favourites','Favourites'],['price_alerts','Price alerts'],['system','System updates']] as const).map(([key,label])=><label className="prefItem" key={key}><input type="checkbox" checked={prefs[key]} onChange={e=>setPrefs({...prefs,[key]:e.target.checked})}/><span>{label}</span></label>)}</div></div>
+      <div className="privateContactBox"><div className="privateContactHead"><ShieldCheck size={18}/><div><b>Private contact details</b><p className="muted">Only you can read or edit these fields. They are never shown on public profiles.</p></div></div><div className="privateGrid"><div className="field"><label htmlFor="phone">Phone number</label><input id="phone" value={phone} maxLength={30} inputMode="tel" onChange={e=>setPhone(e.target.value)} /></div><div className="field"><label htmlFor="whatsapp">WhatsApp number</label><input id="whatsapp" value={whatsapp} maxLength={30} inputMode="tel" onChange={e=>setWhatsapp(e.target.value)} /></div></div></div>
       {error&&<div className="error">{error}</div>}{message&&<div className="notice">{message}</div>}
       <button className="btn green" onClick={save} disabled={saving}><Save size={17}/>{saving?'Saving...':'Save settings'}</button>
     </div>

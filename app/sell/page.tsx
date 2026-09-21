@@ -1,91 +1,24 @@
 'use client';
 import {useState} from 'react';
 import {createClient} from '../../lib/supabase';
-import {ImagePlus,Upload,Loader2} from 'lucide-react';
+import {ImagePlus,Upload,Loader2,Home} from 'lucide-react';
+import {compressImage} from '../../lib/image-compress';
 
-const MAX_IMAGES = 6;
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-
-function withTimeout<T>(promise: PromiseLike<T>, ms: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
-  });
-}
-
+const MAX_IMAGES=6; const MAX_IMAGE_SIZE=10*1024*1024;
+function withTimeout<T>(promise:PromiseLike<T>,ms:number,message:string):Promise<T>{return new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error(message)),ms);promise.then(v=>{clearTimeout(t);resolve(v)},e=>{clearTimeout(t);reject(e)})})}
 export default function Sell(){
-  const [title,setTitle]=useState('');
-  const [price,setPrice]=useState('');
-  const [category,setCategory]=useState('Phones & Gadgets');
-  const [description,setDescription]=useState('');
-  const [campus,setCampus]=useState('');
-  const [files,setFiles]=useState<File[]>([]);
-  const [error,setError]=useState('');
-  const [loading,setLoading]=useState(false);
-  const [progress,setProgress]=useState('');
-
-  async function submit(e:React.FormEvent){
-    e.preventDefault();
-    if(loading) return;
-    setLoading(true); setError(''); setProgress('Checking your account...');
-    const supabase=createClient();
-    try {
-      const {data:{user},error:userError}=await withTimeout(supabase.auth.getUser(),15000,'Your sign-in session could not be verified. Please sign in again.');
-      if(userError || !user){ window.location.assign('/auth/login?next=/sell'); return; }
-      const cleanTitle=title.trim().slice(0,120); const cleanDescription=description.trim().slice(0,5000); const cleanCampus=campus.trim().slice(0,120); if(cleanTitle.length<3) throw new Error('Title must be at least 3 characters.'); if(cleanDescription.length<10) throw new Error('Description must be at least 10 characters.'); if(cleanCampus.length<2) throw new Error('Please enter a valid campus.'); const numericPrice=Number(price);
-      if(!Number.isFinite(numericPrice) || numericPrice < 0) throw new Error('Please enter a valid price.');
-      if(files.length>MAX_IMAGES) throw new Error(`You can upload up to ${MAX_IMAGES} photos.`);
-      for(const file of files){
-        if(file.size>MAX_IMAGE_SIZE) throw new Error(`${file.name} is larger than 10MB.`);
-        if(!file.type.startsWith('image/')) throw new Error(`${file.name} is not an image.`);
-      }
-
-      setProgress('Creating your listing...');
-      const {data:listing,error:listingError}=await withTimeout<{ data: { id: string } | null; error: { message: string } | null }>(
-        supabase.from('listings').insert({title:cleanTitle,price:numericPrice,category,description:cleanDescription,campus:cleanCampus,seller_id:user.id,status:'available'}).select('id').single(),
-        20000,
-        'The listing request timed out. Please try again.'
-      );
-      if(listingError || !listing) throw new Error(listingError?.message || 'Could not create your listing.');
-
-      const imageErrors:string[]=[];
-      for(let i=0;i<files.length;i++){
-        const file=files[i];
-        setProgress(files.length===1?'Uploading photo...':`Uploading photo ${i+1} of ${files.length}...`);
-        const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
-        const path=`${user.id}/${listing.id}/${i}-${crypto.randomUUID()}.${ext}`;
-        const up=await withTimeout(
-          supabase.storage.from('listing-images').upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'}),
-          30000,
-          'Image upload timed out. Your listing was created, but the photo could not be uploaded.'
-        );
-        if(up.error){ imageErrors.push(up.error.message); continue; }
-        const {data:publicUrl}=supabase.storage.from('listing-images').getPublicUrl(path);
-        const imageRow=await supabase.from('listing_images').insert({listing_id:listing.id,url:publicUrl.publicUrl,storage_path:path,sort_order:i});
-        if(imageRow.error) imageErrors.push(imageRow.error.message);
-      }
-
-      setProgress(imageErrors.length ? 'Listing published. Opening it now...' : 'Listing published. Opening it now...');
-      window.location.assign(`/product/${listing.id}`);
-    } catch(err:any) {
-      setError(err?.message || 'Something went wrong while publishing. Please try again.');
-      setProgress('');
-      setLoading(false);
-    }
-  }
-
-  return <main className="formPage"><div className="formCard">
-    <div className="eyebrow">Sell on CampusDrop</div><h1>Create a listing</h1>
-    <p className="muted">Add your item and publish it to the campus marketplace.</p>
-    {error&&<div className="error">{error}</div>}
-    <form onSubmit={submit}>
-      <div className="field"><label htmlFor="listingTitle">Title</label><input id="listingTitle" maxLength={120} value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. iPhone 13 Pro" required/></div>
-      <div className="split"><div className="field"><label htmlFor="listingPrice">Price (₦)</label><input id="listingPrice" type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)} required/></div><div className="field"><label htmlFor="listingCategory">Category</label><select id="listingCategory" value={category} onChange={e=>setCategory(e.target.value)}><option>Phones & Gadgets</option><option>Laptops</option><option>Fashion</option><option>Books</option><option>Gaming</option><option>Services</option></select></div></div>
-      <div className="field"><label htmlFor="listingCampus">Campus</label><input id="listingCampus" maxLength={120} value={campus} onChange={e=>setCampus(e.target.value)} placeholder="Your school / campus" required/></div>
-      <div className="field"><label htmlFor="listingDescription">Description</label><textarea id="listingDescription" maxLength={5000} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Tell buyers what they should know..." required/></div>
-      <div className="field"><label htmlFor="listingPhotos">Photos</label><div className="panel" style={{padding:14}}><div className="row"><ImagePlus size={20}/><span id="listingPhotosHelp" className="muted">Upload up to 6 clear product photos. Maximum 10MB each.</span></div><input id="listingPhotos" aria-describedby="listingPhotosHelp" type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={e=>setFiles(Array.from(e.target.files||[]).slice(0,MAX_IMAGES))} style={{marginTop:12}}/></div></div>
-      {progress&&<div className="notice row"><Loader2 size={16} className="spin"/><span>{progress}</span></div>}
-      <button className="btn green full" disabled={loading}><Upload size={17}/>{loading?'Publishing...':'Publish listing'}</button>
-    </form>
-  </div></main>
+ const [listingType,setListingType]=useState('product'),[title,setTitle]=useState(''),[price,setPrice]=useState(''),[category,setCategory]=useState('Phones & Gadgets'),[description,setDescription]=useState(''),[campus,setCampus]=useState(''),[files,setFiles]=useState<File[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(false),[progress,setProgress]=useState('');
+ const [propertyType,setPropertyType]=useState('Self-contained'),[bedrooms,setBedrooms]=useState(''),[bathrooms,setBathrooms]=useState(''),[spaces,setSpaces]=useState('1'),[furnished,setFurnished]=useState(''),[availabilityDate,setAvailabilityDate]=useState(''),[initial,setInitial]=useState(''),[balance,setBalance]=useState(''),[schedule,setSchedule]=useState(''),[fees,setFees]=useState(''),[amenities,setAmenities]=useState(''),[rules,setRules]=useState('');
+ async function submit(e:React.FormEvent){e.preventDefault();if(loading)return;setLoading(true);setError('');setProgress('Checking your account...');const s=createClient();try{const {data:{user},error:uerr}=await withTimeout<any>(s.auth.getUser(),15000,'Your sign-in session could not be verified. Please sign in again.');if(uerr||!user){location.assign('/auth/login?next=/sell');return}const t=title.trim().slice(0,120),d=description.trim().slice(0,5000),c=campus.trim().slice(0,120);if(t.length<3)throw Error('Title must be at least 3 characters.');if(d.length<10)throw Error('Description must be at least 10 characters.');if(c.length<2)throw Error('Please enter a valid campus.');const n=Number(price);if(!Number.isFinite(n)||n<0)throw Error('Please enter a valid price.');if(files.length>MAX_IMAGES)throw Error(`You can upload up to ${MAX_IMAGES} photos.`);const compressed:File[]=[];for(const f of files){if(f.size>MAX_IMAGE_SIZE)throw Error(`${f.name} is larger than 10MB.`);if(!f.type.startsWith('image/'))throw Error(`${f.name} is not an image.`);const cfile=await compressImage(f,1600,.82); if(cfile.size>1.5*1024*1024) throw Error(`${f.name} could not be reduced below 1.5MB. Please choose a smaller image.`); compressed.push(cfile)}
+ const payload:any={title:t,price:n,category:listingType==='accommodation'?'Accommodation':category,description:d,campus:c,seller_id:user.id,status:'available',listing_type:listingType};if(listingType==='accommodation'){payload.property_type=propertyType;payload.bedrooms=bedrooms?Number(bedrooms):null;payload.bathrooms=bathrooms?Number(bathrooms):null;payload.available_spaces=spaces?Number(spaces):null;payload.furnished=furnished?furnished==='yes':null;payload.availability_date=availabilityDate||null;payload.payment_initial=initial?Number(initial):null;payload.payment_balance=balance?Number(balance):null;payload.payment_schedule=schedule||null;payload.extra_fees=fees.split(',').map(x=>x.trim()).filter(Boolean).map(x=>({label:x}));payload.amenities=amenities.split(',').map(x=>x.trim()).filter(Boolean);payload.rules=rules.trim()||null}
+ setProgress('Creating your listing...');const {data:listing,error:le}=await withTimeout<any>(s.from('listings').insert(payload).select('id').single(),20000,'The listing request timed out. Please try again.');if(le||!listing)throw Error(le?.message||'Could not create your listing.');
+ for(let i=0;i<compressed.length;i++){setProgress(`Uploading photo ${i+1} of ${compressed.length}...`);const f=compressed[i],ext=f.type==='image/webp'?'webp':f.type==='image/png'?'png':f.type==='image/gif'?'gif':(f.name.split('.').pop()||'jpg').toLowerCase(),path=`${user.id}/${listing.id}/${i}-${crypto.randomUUID()}.${ext}`;const up:any=await withTimeout(s.storage.from('listing-images').upload(path,f,{contentType:f.type,upsert:false,cacheControl:'31536000'}),30000,'Image upload timed out.');if(up.error)continue;const {data:url}=s.storage.from('listing-images').getPublicUrl(path);await s.from('listing_images').insert({listing_id:listing.id,url:url.publicUrl,storage_path:path,sort_order:i})}
+ location.assign(`/product/${listing.id}`)}catch(err:any){setError(err?.message||'Something went wrong.');setProgress('');setLoading(false)}}
+ return <main className="formPage"><div className="formCard"><div className="eyebrow">Sell on CampusDrop</div><h1>Create a listing</h1><p className="muted">List an item or create a student accommodation listing.</p>{error&&<div className="error">{error}</div>}<form onSubmit={submit}>
+ <div className="field"><label>Listing type</label><div className="segmented"><button type="button" className={listingType==='product'?'active':''} onClick={()=>setListingType('product')}>Product</button><button type="button" className={listingType==='accommodation'?'active':''} onClick={()=>setListingType('accommodation')}><Home size={16}/> Accommodation</button></div></div>
+ <div className="field"><label>Title</label><input maxLength={120} value={title} onChange={e=>setTitle(e.target.value)} placeholder={listingType==='accommodation'?'e.g. Self-contained room near TASUED':'e.g. iPhone 13 Pro'} required/></div>
+ {listingType==='product'?<div className="split"><div className="field"><label>Price (₦)</label><input type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)} required/></div><div className="field"><label>Category</label><select value={category} onChange={e=>setCategory(e.target.value)}><option>Phones & Gadgets</option><option>Laptops</option><option>Fashion</option><option>Books</option><option>Gaming</option><option>Services</option></select></div></div>:<><div className="split"><div className="field"><label>Property type</label><select value={propertyType} onChange={e=>setPropertyType(e.target.value)}><option>Room</option><option>Self-contained</option><option>Flat / Apartment</option><option>Hostel</option><option>Shared apartment</option><option>House</option></select></div><div className="field"><label>Available spaces</label><input type="number" min="1" value={spaces} onChange={e=>setSpaces(e.target.value)}/></div></div><div className="split"><div className="field"><label>Bedrooms</label><input type="number" min="0" value={bedrooms} onChange={e=>setBedrooms(e.target.value)}/></div><div className="field"><label>Bathrooms</label><input type="number" min="0" value={bathrooms} onChange={e=>setBathrooms(e.target.value)}/></div></div><div className="split"><div className="field"><label>First payment (₦)</label><input type="number" min="0" value={initial} onChange={e=>setInitial(e.target.value)}/></div><div className="field"><label>Later balance (₦)</label><input type="number" min="0" value={balance} onChange={e=>setBalance(e.target.value)}/></div></div><div className="split"><div className="field"><label>Payment schedule</label><select value={schedule} onChange={e=>setSchedule(e.target.value)}><option value="">Select</option><option>Monthly</option><option>Termly</option><option>Annually</option><option>Custom</option></select></div><div className="field"><label>Available from</label><input type="date" value={availabilityDate} onChange={e=>setAvailabilityDate(e.target.value)}/></div></div><div className="field"><label>Furnished</label><select value={furnished} onChange={e=>setFurnished(e.target.value)}><option value="">Not specified</option><option value="yes">Yes</option><option value="no">No</option></select></div><div className="field"><label>Extra fees</label><input value={fees} onChange={e=>setFees(e.target.value)} placeholder="Caution fee, agreement fee, service charge"/><small className="muted">Separate fees with commas.</small></div><div className="field"><label>Amenities</label><input value={amenities} onChange={e=>setAmenities(e.target.value)} placeholder="Water, electricity, security, Wi-Fi"/></div><div className="field"><label>House rules</label><textarea value={rules} onChange={e=>setRules(e.target.value)} placeholder="Visitor rules, restrictions, etc."/></div></>}
+ <div className="field"><label>Campus</label><input maxLength={120} value={campus} onChange={e=>setCampus(e.target.value)} placeholder="Your school / campus" required/></div><div className="field"><label>Description</label><textarea maxLength={5000} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Tell students what they should know..." required/></div>
+ <div className="field"><label>Photos</label><div className="panel" style={{padding:14}}><div className="row"><ImagePlus size={20}/><span className="muted">Up to 6 photos. Images are automatically compressed before upload.</span></div><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic" multiple onChange={e=>setFiles(Array.from(e.target.files||[]).slice(0,MAX_IMAGES))} style={{marginTop:12}}/></div></div>
+ {progress&&<div className="notice row"><Loader2 size={16} className="spin"/><span>{progress}</span></div>}<button className="btn green full" disabled={loading}><Upload size={17}/>{loading?'Publishing...':'Publish listing'}</button></form></div></main>
 }

@@ -6,10 +6,12 @@ import Link from 'next/link';
 import { ArrowLeft, Check, CheckCheck, ImagePlus, Info, MoreVertical, Paperclip, Pencil, Send, Trash2, X } from 'lucide-react';
 import { createClient } from '../../../lib/supabase';
 import { Avatar } from '../../../components/avatar';
-import { PageSkeleton } from '../../../components/skeleton';
+import { VerifiedName } from '../../../components/verified-name';
+import { compressImage } from '../../../lib/image-compress';
 
 const EDIT_WINDOW_MS = 10 * 60 * 1000;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_COMPRESSED_SIZE = 1.5 * 1024 * 1024;
 
 function formatTime(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -50,11 +52,7 @@ export default function Chat() {
       .eq('conversation_id', id)
       .order('created_at', { ascending: true });
     if (messageError) throw messageError;
-    const hydrated = await Promise.all((data || []).map(async (message: any) => {
-      if (!message.attachment_path) return message;
-      const { data: signed } = await supabase.storage.from('message-attachments').createSignedUrl(message.attachment_path, 60 * 60);
-      return { ...message, attachment_url: signed?.signedUrl || '' };
-    }));
+    const hydrated = await Promise.all((data || []).map(async (m:any) => m.attachment_path ? { ...m, attachment_url: await getAttachmentUrl(m.attachment_path) } : m));
     setMsgs(hydrated);
 
     const { error: deliveredError } = await supabase.rpc('mark_messages_delivered', { p_conversation_id: id });
@@ -88,7 +86,7 @@ export default function Chat() {
         const otherId = conversation.buyer_id === currentUser.id ? conversation.seller_id : conversation.buyer_id;
         const [{ data: listing }, { data: profile }] = await Promise.all([
           supabase.from('listings').select('title').eq('id', conversation.listing_id).maybeSingle(),
-          supabase.from('profiles').select('full_name,avatar_url').eq('id', otherId).maybeSingle(),
+          supabase.from('profiles').select('id,full_name,avatar_url').eq('id', otherId).maybeSingle(),
         ]);
         setTitle(listing?.title || 'CampusDrop conversation');
         setOther(profile || null);
@@ -100,8 +98,7 @@ export default function Chat() {
           .channel(`chat-${id}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` }, async (payload) => {
             if (payload.eventType === 'INSERT') {
-              const incoming = payload.new as any;
-              if (incoming.attachment_path) { const { data: signed } = await supabase.storage.from('message-attachments').createSignedUrl(incoming.attachment_path, 60 * 60); incoming.attachment_url = signed?.signedUrl || ''; }
+              const incoming = payload.new.attachment_path ? { ...payload.new, attachment_url: await getAttachmentUrl(payload.new.attachment_path) } : payload.new;
               setMsgs((current) => current.some((m) => m.id === incoming.id) ? current : [...current, incoming]);
               if (payload.new.sender_id !== currentUser.id) {
                 await supabase.rpc('mark_messages_delivered', { p_conversation_id: id });
@@ -132,13 +129,16 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [msgs.length]);
 
-  function chooseAttachment(file: File | null) {
+  async function chooseAttachment(file: File | null) {
     if (!file) return;
     if (!file.type.startsWith('image/')) { setError('Only image files can be sent here.'); return; }
     if (file.size > MAX_IMAGE_SIZE) { setError('Image must be 10MB or smaller.'); return; }
+    setError('Optimising image...');
+    const compressed = await compressImage(file, 1280, 0.78);
+    if (compressed.size > MAX_COMPRESSED_SIZE) { setError('This image is still too large after compression. Please choose a smaller image.'); return; }
     setError('');
-    setAttachment(file);
-    setAttachmentPreview(URL.createObjectURL(file));
+    setAttachment(compressed);
+    setAttachmentPreview(URL.createObjectURL(compressed));
   }
 
   function clearAttachment() {
@@ -156,7 +156,7 @@ export default function Chat() {
       let attachmentPath: string | null = null;
       let attachmentName: string | null = null;
       if (attachment) {
-        const ext = (attachment.name.split('.').pop() || 'jpg').toLowerCase();
+        const ext = 'webp';
         attachmentPath = `${user.id}/${id}/${crypto.randomUUID()}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('message-attachments').upload(attachmentPath, attachment, { contentType: attachment.type, upsert: false });
         if (uploadError) throw uploadError;
@@ -234,13 +234,13 @@ export default function Chat() {
         <div className="chatTopBar">
           <Link href="/messages" className="chatBack" aria-label="Back to messages"><ArrowLeft size={20} /></Link>
           <Avatar url={other?.avatar_url} name={other?.full_name || 'Student'} size="sm" />
-          <div className="chatPerson"><b>{other?.full_name || 'Student'}</b><span>{title}</span></div>
+          <div className="chatPerson"><VerifiedName userId={other?.id} name={other?.full_name || 'Student'}/><span>{title}</span></div>
         </div>
 
         {error && <div className="chatError">{error}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div>}
 
         <div className="chatBody whatsappBody">
-          {loading ? <div className="chatLoading"><PageSkeleton rows={5}/></div> : !msgs.length ? <div className="chatEmpty"><MessageCirclePlaceholder /><b>Start the conversation</b><span>Ask about the item, price or availability.</span></div> : msgs.map((message) => {
+          {loading ? <div className="chatLoading"><span className="skeleton skeletonLine"/><span className="skeleton skeletonLine medium"/></div> : !msgs.length ? <div className="chatEmpty"><MessageCirclePlaceholder /><b>Start the conversation</b><span>Ask about the item, price or availability.</span></div> : msgs.map((message) => {
             const mine = message.sender_id === user?.id;
             const deleted = !!message.deleted_at;
             const canEdit = mine && !deleted && Date.now() - new Date(message.created_at).getTime() <= EDIT_WINDOW_MS && !!message.body;

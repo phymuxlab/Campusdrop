@@ -1,100 +1,23 @@
 'use client';
-
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, Flag, Heart, MessageCircle, Trash2, Share2, Bell, ShieldCheck } from 'lucide-react';
+import {useEffect,useState} from 'react';
+import {useParams} from 'next/navigation';
+import {ArrowLeft,BadgeCheck,Flag,Heart,MessageCircle,Save,Trash2} from 'lucide-react';
 import Link from 'next/link';
-import { createClient } from '../../../lib/supabase';
-import { Avatar } from '../../../components/avatar';
-import { PageSkeleton } from '../../../components/skeleton';
+import {createClient} from '../../../lib/supabase';
+import {Avatar} from '../../../components/avatar';
+import {VerifiedName} from '../../../components/verified-name';
 
-export default function Product() {
-  const { id } = useParams<{ id: string }>();
-  const [item, setItem] = useState<any>(null);
-  const [saved, setSaved] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [reporting, setReporting] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(0);
-  const [error, setError] = useState('');
-  const [sellerVerified, setSellerVerified] = useState(false);
-
-  useEffect(() => { load(); }, [id]);
-
-  async function load() {
-    const supabase = createClient();
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
-    setUser(currentUser);
-    const { data, error: listingError } = await supabase
-      .from('listings')
-      .select('*, listing_images(url,sort_order), profiles: seller_id(full_name,avatar_url)')
-      .eq('id', id).single();
-    if (listingError) { setError(listingError.message); return; }
-    const images = [...(data?.listing_images || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-    setItem({ ...data, listing_images: images });
-    const { data: verified } = await supabase.from('student_verifications').select('status').eq('user_id', data.seller_id).eq('status', 'approved').maybeSingle();
-    setSellerVerified(!!verified);
-    if (currentUser) {
-      const { data: favourite } = await supabase.from('favourites').select('listing_id').eq('listing_id', id).eq('user_id', currentUser.id).maybeSingle();
-      setSaved(!!favourite);
-      await supabase.from('recently_viewed').upsert({ user_id: currentUser.id, listing_id: id, viewed_at: new Date().toISOString() }, { onConflict: 'user_id,listing_id' });
-    }
-  }
-
-  async function fav() {
-    if (!user) { window.location.assign(`/auth/login?next=/product/${id}`); return; }
-    const supabase = createClient();
-    if (saved) { await supabase.from('favourites').delete().eq('listing_id', id).eq('user_id', user.id); setSaved(false); }
-    else { const { error: favouriteError } = await supabase.from('favourites').insert({ listing_id: id, user_id: user.id }); if (!favouriteError) setSaved(true); }
-  }
-
-  async function chat() {
-    if (!user) { window.location.assign(`/auth/login?next=/product/${id}`); return; }
-    if (user.id === item.seller_id) { window.location.assign('/my-listings'); return; }
-    const supabase = createClient();
-    const { data, error: chatError } = await supabase.from('conversations').upsert({ listing_id: id, buyer_id: user.id, seller_id: item.seller_id }, { onConflict: 'listing_id,buyer_id,seller_id' }).select().single();
-    if (chatError) { setError(chatError.message); return; }
-    if (data) window.location.assign(`/messages/${data.id}`);
-  }
-
-  async function share(){try{if(navigator.share) await navigator.share({title:item?.title||'CampusDrop listing',text:`${item?.title||'CampusDrop listing'} on CampusDrop`,url:window.location.href});else await navigator.clipboard.writeText(window.location.href);setError('Listing link copied.')}catch{}}
-  async function priceAlert(){if(!user){window.location.assign(`/auth/login?next=/product/${id}`);return}const {error:e}=await createClient().from('price_alerts').upsert({user_id:user.id,listing_id:id,target_price:Number(item?.price||0)},{onConflict:'user_id,listing_id'});if(e)setError(e.message);else setError('Price alert saved. We will use it when price-alert notifications are available.')}
-  async function report() {
-    if (!user) { window.location.assign(`/auth/login?next=/product/${id}`); return; }
-    const { error: reportError } = await createClient().from('reports').insert({ listing_id: id, reporter_id: user.id, reason: 'Suspicious or inappropriate listing' });
-    if (reportError) setError(reportError.message); else setReporting(false);
-  }
-
-  if (!item) return <main className="section"><div className="container">{error ? <div className="error">{error}</div> : <PageSkeleton rows={7}/>}</div></main>;
-
-  const images = item.listing_images || [];
-  const image = images[selectedImage]?.url || images[0]?.url || '';
-  const seller = item.profiles?.[0];
-
-  return (
-    <main className="section productSection">
-      <div className="container">
-        <Link href="/marketplace" className="productBack"><ArrowLeft size={18}/> Back to marketplace</Link>
-        {error && <div className="error">{error}</div>}
-        <div className="product">
-          <div className="productGallery">
-            <div className="productImage" style={image ? { backgroundImage: `url(${image})` } : undefined} role="img" aria-label={item.title} />
-            {images.length > 1 && <div className="productThumbs">{images.map((img: any, index: number) => <button key={img.url || index} className={`productThumb ${selectedImage === index ? 'selected' : ''}`} onClick={() => setSelectedImage(index)} aria-label={`View photo ${index + 1}`}><img src={img.url} alt="" /></button>)}</div>}
-          </div>
-          <div className="productInfo">
-            <div className="row between"><span className="tag">{item.category}</span><button className="iconBtn" onClick={fav} aria-label={saved ? 'Remove from saved' : 'Save listing'}><Heart size={19} fill={saved ? 'currentColor' : 'none'} /></button></div>
-            <h1>{item.title}</h1>
-            <div className="price">₦{Number(item.price || 0).toLocaleString()}</div>
-            <div className="productMeta">{item.campus || 'Campus'} <span>·</span> {item.condition || 'Listed item'}</div>
-            <hr className="productRule" />
-            <h3>Description</h3>
-            <p className="productDescription">{item.description || 'No description provided.'}</p>
-            <Link href={`/users/${item.seller_id}`} className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name || 'CampusDrop seller'} size="md"/><div><b>{seller?.full_name || 'CampusDrop seller'} {sellerVerified&&<span className="verifiedBadge"><ShieldCheck size={12}/> Verified</span>}</b><div className="muted">View public profile</div></div></div></Link>
-            <div className="actionsRow productActions"><button className="btn green" onClick={chat}><MessageCircle size={17}/> Chat seller</button><button className="btn light" onClick={fav}><Heart size={17}/> {saved ? 'Saved' : 'Save'}</button><button className="btn light" onClick={share}><Share2 size={17}/> Share</button><button className="btn light" onClick={priceAlert}><Bell size={17}/> Price alert</button><button className="btn light" onClick={() => setReporting(true)}><Flag size={17}/> Report</button></div>
-            {reporting && <div className="notice reportNotice">Report this listing? <button className="btn danger" onClick={report}>Report</button><button className="btn light" onClick={() => setReporting(false)}>Cancel</button></div>}
-            {user?.id === item.seller_id && <button className="btn danger" style={{ marginTop: 14 }} onClick={async () => { await createClient().from('listings').update({ status: 'hidden' }).eq('id', id); window.location.assign('/my-listings'); }}><Trash2 size={17}/> Hide listing</button>}
-          </div>
-        </div>
-      </div>
-    </main>
-  );
+export default function Product(){
+ const {id}=useParams<{id:string}>();const [item,setItem]=useState<any>(null),[saved,setSaved]=useState(false),[alert,setAlert]=useState(false),[user,setUser]=useState<any>(null),[reporting,setReporting]=useState(false),[editing,setEditing]=useState(false),[newPrice,setNewPrice]=useState(''),[status,setStatus]=useState('available'),[error,setError]=useState(''),[notice,setNotice]=useState(''),[selectedImage,setSelectedImage]=useState(0);
+ useEffect(()=>{load()},[id]);
+ async function load(){const s=createClient();const {data:{user:u}}=await s.auth.getUser();setUser(u);const {data,error:e}=await s.from('listings').select('*,listing_images(url,sort_order),profiles:seller_id(id,full_name,avatar_url)').eq('id',id).single();if(e){setError(e.message);return}const images=[...(data?.listing_images||[])].sort((a:any,b:any)=>(a.sort_order??0)-(b.sort_order??0));setItem({...data,listing_images:images});setNewPrice(String(data.price??''));setStatus(data.status);if(u){const [{data:f},{data:a}]=await Promise.all([s.from('favourites').select('listing_id').eq('listing_id',id).eq('user_id',u.id).maybeSingle(),s.from('price_alerts').select('id').eq('listing_id',id).eq('user_id',u.id).maybeSingle()]);setSaved(!!f);setAlert(!!a)}}
+ async function fav(){if(!user){location.assign(`/auth/login?next=/product/${id}`);return}const s=createClient();if(saved){await s.from('favourites').delete().eq('listing_id',id).eq('user_id',user.id);setSaved(false)}else{const {error:e}=await s.from('favourites').insert({listing_id:id,user_id:user.id});if(!e)setSaved(true)}}
+ async function priceAlert(){if(!user){location.assign(`/auth/login?next=/product/${id}`);return}const s=createClient();if(alert){await s.from('price_alerts').delete().eq('listing_id',id).eq('user_id',user.id);setAlert(false);setNotice('Price alert removed.')}else{const {error:e}=await s.from('price_alerts').insert({listing_id:id,user_id:user.id,target_price:null});if(!e){setAlert(true);setNotice('Price alert enabled. You will be notified when this price changes.')}else setError(e.message)}}
+ async function chat(){if(!user){location.assign(`/auth/login?next=/product/${id}`);return}if(user.id===item.seller_id){location.assign('/my-listings');return}const s=createClient();const {data,error:e}=await s.from('conversations').upsert({listing_id:id,buyer_id:user.id,seller_id:item.seller_id},{onConflict:'listing_id,buyer_id,seller_id'}).select().single();if(e)setError(e.message);else if(data)location.assign(`/messages/${data.id}`)}
+ async function savePrice(){const n=Number(newPrice);if(!Number.isFinite(n)||n<0){setError('Enter a valid price.');return}const s=createClient();const {error:e}=await s.from('listings').update({price:n}).eq('id',id).eq('seller_id',user.id);if(e)setError(e.message);else{setItem((x:any)=>({...x,price:n}));setEditing(false);setNotice('Price updated. Price-alert subscribers will be notified.')}}
+ async function changeStatus(){const next=item.listing_type==='accommodation'?(status==='available'?'sold':'available'):(status==='available'?'sold':'available');const s=createClient();const {error:e}=await s.from('listings').update({status:next}).eq('id',id).eq('seller_id',user.id);if(e)setError(e.message);else{setStatus(next);setItem((x:any)=>({...x,status:next}));setNotice(next==='sold'?(item.listing_type==='accommodation'?'Listing marked as rented.':'Listing marked as sold.'):'Listing is available again.')}}
+ async function report(){if(!user){location.assign(`/auth/login?next=/product/${id}`);return}const {error:e}=await createClient().from('reports').insert({listing_id:id,reporter_id:user.id,reason:'Suspicious or inappropriate listing'});if(e)setError(e.message);else{setReporting(false);setNotice('Report submitted.')}}
+ if(!item)return <main className="section"><div className="container"><div className="skeletonBlock"><span className="skeleton skeletonHero"/><span className="skeleton skeletonLine"/><span className="skeleton skeletonLine medium"/></div></div></main>;
+ const images=item.listing_images||[],image=images[selectedImage]?.url||'',seller=item.profiles;const isOwner=user?.id===item.seller_id;const sold=item.status==='sold';
+ return <main className="section productSection"><div className="container"><Link href="/marketplace" className="productBack"><ArrowLeft size={18}/> Back to marketplace</Link>{error&&<div className="error">{error}</div>}{notice&&<div className="notice">{notice}</div>}<div className="product"><div className="productGallery"><div className="productImage" style={image?{backgroundImage:`url(${image})`}:undefined} role="img" aria-label={item.title}/>{images.length>1&&<div className="productThumbs">{images.map((img:any,i:number)=><button key={img.url||i} className={`productThumb ${selectedImage===i?'selected':''}`} onClick={()=>setSelectedImage(i)}><img src={img.url} alt=""/></button>)}</div>}</div><div className="productInfo"><div className="row between"><span className="tag">{item.listing_type==='accommodation'?'Accommodation':item.category}</span>{sold&&<span className="soldBadge">{item.listing_type==='accommodation'?'RENTED':'SOLD'}</span>}<button className="iconBtn" onClick={fav}><Heart size={19} fill={saved?'currentColor':'none'}/></button></div><h1>{item.title}</h1><div className="price">₦{Number(item.price||0).toLocaleString()}</div>{item.listing_type==='accommodation'&&<div className="panel housingPayment"><b>Payment plan</b><div>First payment: ₦{Number(item.payment_initial||0).toLocaleString()}</div><div>Later balance: ₦{Number(item.payment_balance||0).toLocaleString()}</div>{item.payment_schedule&&<div>Schedule: {item.payment_schedule}</div>}{item.extra_fees?.length>0&&<div>Extra fees: {item.extra_fees.map((x:any)=>x.label).join(', ')}</div>}</div>}<div className="productMeta">{item.campus||'Campus'} <span>·</span> {item.status==='sold'?(item.listing_type==='accommodation'?'Rented':'Sold'):'Available'}</div><hr className="productRule"/><h3>Description</h3><p className="productDescription">{item.description||'No description provided.'}</p>{item.amenities?.length>0&&<><h3>Amenities</h3><p className="productDescription">{item.amenities.join(' · ')}</p></>}<Link href={`/users/${item.seller_id}`} className="panel sellerPanel"><div className="row"><Avatar url={seller?.avatar_url} name={seller?.full_name||'CampusDrop student'} size="md"/><div><VerifiedName userId={seller?.id||item.seller_id} name={seller?.full_name}/><div className="muted">View public profile</div></div></div></Link><div className="actionsRow productActions">{!isOwner&&<button className="btn green" onClick={chat} disabled={sold}><MessageCircle size={17}/> Chat seller</button>}{!isOwner&&<button className="btn light" onClick={priceAlert}>{alert?'Price alert on':'Price alert'}</button>}<button className="btn light" onClick={fav}><Heart size={17}/> {saved?'Saved':'Save'}</button><button className="btn light" onClick={()=>setReporting(true)}><Flag size={17}/> Report</button></div>{reporting&&<div className="notice">Report this listing? <button className="btn danger" onClick={report}>Report</button><button className="btn light" onClick={()=>setReporting(false)}>Cancel</button></div>}{isOwner&&<div className="panel ownerTools"><b>Seller controls</b><div className="actionsRow"><button className="btn light" onClick={()=>setEditing(!editing)}><Save size={16}/> Edit price</button><button className="btn light" onClick={changeStatus}>{sold?(item.listing_type==='accommodation'?'Mark available':'Mark available'):(item.listing_type==='accommodation'?'Mark as rented':'Mark as sold')}</button><button className="btn danger" onClick={async()=>{await createClient().from('listings').update({status:'hidden'}).eq('id',id);location.assign('/my-listings')}}><Trash2 size={16}/> Hide</button></div>{editing&&<div className="split"><div className="field"><label>New price (₦)</label><input type="number" min="0" value={newPrice} onChange={e=>setNewPrice(e.target.value)}/></div><div className="field"><label>&nbsp;</label><button className="btn green" onClick={savePrice}>Save price</button></div></div>}</div>}</div></div></div></main>
 }

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Bell, Home, MessageCircle, Plus, ShoppingBag, ChevronDown, Settings, LogOut } from 'lucide-react';
 import { createClient } from '../lib/supabase';
 import { Avatar } from './avatar';
+import { VerifiedName } from './verified-name';
 
 
 function CookieNotice() {
@@ -74,10 +75,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <ChevronDown size={14} />
               </button>
               {menuOpen && <div className="accountDropdown">
-                <div className="accountSummary"><Avatar url={avatarUrl} name={displayName} size="md" /><div><b>{displayName}</b><span>{profile?.campus || 'Campus not set'}</span></div></div>
+                <div className="accountSummary"><Avatar url={avatarUrl} name={displayName} size="md" /><div><VerifiedName userId={user?.id} name={displayName}/><span>{profile?.campus || 'Campus not set'}</span></div></div>
                 <Link href="/profile" onClick={() => setMenuOpen(false)}><Avatar url={avatarUrl} size="sm" /> Profile</Link>
                 <Link href="/settings" onClick={() => setMenuOpen(false)}><Settings size={17} /> Settings</Link>
-                <div className="dropdownTheme"></div>
+                
                 <button onClick={signOut}><LogOut size={17} /> Sign out</button>
               </div>}
             </div>
