@@ -21,6 +21,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     const supabase = createClient();
@@ -36,12 +38,42 @@ export default function AppShell({ children }: { children: ReactNode }) {
       if (mounted) setProfile(data || null);
     };
 
-    supabase.auth.getUser().then(({ data }) => loadProfile(data.user));
+    const loadUnread = async (currentUser: any) => {
+      if (!currentUser) {
+        if (mounted) { setUnreadMessages(0); setUnreadNotifications(0); }
+        return;
+      }
+      const [{ count: messageCount }, { count: notificationCount }] = await Promise.all([
+        supabase.from('messages').select('id', { count: 'exact', head: true }).neq('sender_id', currentUser.id).is('read_at', null),
+        supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id).is('read_at', null),
+      ]);
+      if (mounted) {
+        setUnreadMessages(messageCount || 0);
+        setUnreadNotifications(notificationCount || 0);
+      }
+    };
+
+    supabase.auth.getUser().then(({ data }) => {
+      loadProfile(data.user);
+      loadUnread(data.user);
+    });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      window.setTimeout(() => loadProfile(session?.user || null), 0);
+      window.setTimeout(() => {
+        loadProfile(session?.user || null);
+        loadUnread(session?.user || null);
+      }, 0);
     });
 
-    return () => { mounted = false; listener.subscription.unsubscribe(); };
+    const channel = supabase.channel('campusdrop-unread-badges')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        supabase.auth.getUser().then(({ data }) => loadUnread(data.user));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        supabase.auth.getUser().then(({ data }) => loadUnread(data.user));
+      })
+      .subscribe();
+
+    return () => { mounted = false; listener.subscription.unsubscribe(); supabase.removeChannel(channel); };
   }, []);
 
   async function signOut() {
@@ -64,11 +96,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <Link href="/">Home</Link>
           <Link href="/marketplace">Marketplace</Link>
           <Link href="/sell">Sell</Link>
-          <Link href="/messages">Messages</Link>
+          <Link href="/messages" className="navTextBadge">Messages{unreadMessages > 0 && <span className="unreadBadge navTextBadgeCount">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}</Link>
         </nav>
         <div className="actions">
           {user ? <>
-            <Link className="iconBtn" href="/notifications" aria-label="Notifications"><Bell size={18} /></Link>
+            <Link className="iconBtn navBadgeWrap" href="/notifications" aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : "Notifications"}><Bell size={18} />{unreadNotifications > 0 && <span className="unreadBadge">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}</Link>
             <div className="accountMenu">
               <button className="avatarButton" aria-label="Open account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)}>
                 <Avatar url={avatarUrl} name={displayName} size="sm" />
@@ -94,8 +126,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <Link href="/"><Home size={19} /><span>Home</span></Link>
       <Link href="/marketplace"><ShoppingBag size={19} /><span>Marketplace</span></Link>
       <Link href="/sell"><Plus size={21} /><span>Sell</span></Link>
-      <Link href="/messages"><MessageCircle size={19} /><span>Messages</span></Link>
-      <Link href="/notifications"><Bell size={19} /><span>Notifications</span></Link>
+      <Link href="/messages" aria-label={unreadMessages ? `Messages, ${unreadMessages} unread` : "Messages"}><span className="navBadgeWrap"><MessageCircle size={19} />{unreadMessages > 0 && <span className="unreadBadge">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}</span><span>Messages</span></Link>
+      <Link href="/notifications" aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : "Notifications"}><span className="navBadgeWrap"><Bell size={19} />{unreadNotifications > 0 && <span className="unreadBadge">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}</span><span>Notifications</span></Link>
     </nav>
   </>;
 }

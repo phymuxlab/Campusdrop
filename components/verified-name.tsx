@@ -13,5 +13,5 @@ export function VerifiedName({ userId, name, className = '' }: { userId?: string
     });
     return () => { active = false; };
   }, [userId]);
-  return <span className={`verifiedName ${className}`}>{verified && <BadgeCheck className="verifiedBadge" size={17} aria-label="Verified student" />}<span>{name || 'CampusDrop student'}</span></span>;
+  return <span className={`verifiedName ${className}`}><span>{name || 'CampusDrop student'}</span>{verified && <BadgeCheck className="verifiedBadge" size={17} aria-label="Verified student" />}</span>;
 }
