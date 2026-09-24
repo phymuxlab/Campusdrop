@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Bell, Home, MessageCircle, Plus, ShoppingBag, ChevronDown, Settings, LogOut } from 'lucide-react';
 import { createClient } from '../lib/supabase';
 import { Avatar } from './avatar';
@@ -23,6 +24,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [verified, setVerified] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const supabase = createClient();
@@ -49,13 +52,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
     const loadProfile = async (currentUser: any) => {
       if (!currentUser) {
-        if (mounted) { setUser(null); setProfile(null); }
+        if (mounted) { setUser(null); setProfile(null); setVerified(false); }
         await refreshCounts(null);
         return;
       }
       if (mounted) setUser(currentUser);
-      const { data } = await supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle();
-      if (mounted) setProfile(data || null);
+      const [{ data }, { data: verification }] = await Promise.all([
+        supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle(),
+        supabase.from('student_verifications').select('user_id').eq('user_id', currentUser.id).eq('status', 'approved').maybeSingle(),
+      ]);
+      if (mounted) {
+        setProfile(data || null);
+        setVerified(!!verification);
+      }
       await refreshCounts(currentUser);
 
       profileChannel = supabase.channel(`app-profile-${currentUser.id}`)
@@ -70,8 +79,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       verificationChannel = supabase.channel(`app-verification-${currentUser.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'student_verifications', filter: `user_id=eq.${currentUser.id}` }, async () => {
-          const { data: fresh } = await supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle();
-          if (mounted) setProfile(fresh || null);
+          const [{ data: fresh }, { data: freshVerification }] = await Promise.all([
+            supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle(),
+            supabase.from('student_verifications').select('user_id').eq('user_id', currentUser.id).eq('status', 'approved').maybeSingle(),
+          ]);
+          if (mounted) {
+            setProfile(fresh || null);
+            setVerified(!!freshVerification);
+          }
         })
         .subscribe();
 
@@ -145,7 +160,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <ChevronDown size={14} />
               </button>
               {menuOpen && <div className="accountDropdown">
-                <div className="accountSummary"><Avatar url={avatarUrl} name={displayName} size="md" /><div><VerifiedName userId={user?.id} name={displayName}/><span>{profile?.campus || 'Campus not set'}</span></div></div>
+                <div className="accountSummary"><Avatar url={avatarUrl} name={displayName} size="md" /><div><VerifiedName userId={user?.id} name={displayName} verified={verified}/><span>{profile?.campus || 'Campus not set'}</span></div></div>
                 <Link href="/profile" onClick={() => setMenuOpen(false)}><Avatar url={avatarUrl} size="sm" /> Profile</Link>
                 <Link href="/settings" onClick={() => setMenuOpen(false)}><Settings size={17} /> Settings</Link>
                 <button onClick={signOut}><LogOut size={17} /> Sign out</button>
@@ -160,11 +175,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <footer className="footer"><div className="container footerIn"><div><strong>CampusDrop</strong><div className="muted footerMuted">Your campus marketplace.</div><div className="footerLinks"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refunds">Refunds</Link><Link href="/cookies">Cookies</Link></div></div><div className="muxlabCredit">A MUXLAB project</div></div></footer>
     <CookieNotice />
     <nav className="mobileNav" aria-label="Mobile navigation">
-      <Link href="/"><Home size={19} /><span>Home</span></Link>
-      <Link href="/marketplace"><ShoppingBag size={19} /><span>Marketplace</span></Link>
-      <Link href="/sell"><Plus size={21} /><span>Sell</span></Link>
-      <Link href="/messages" className="navIconBadge"><MessageCircle size={19} /><span>Messages</span>{messageBadge && <span className="navCountBadge">{messageBadge}</span>}</Link>
-      <Link href="/notifications" className="navIconBadge"><Bell size={19} /><span>Notifications</span>{notificationBadge && <span className="navCountBadge">{notificationBadge}</span>}</Link>
+      <div className="mobileNavInner">
+        {[
+          { href: '/', label: 'Home', Icon: Home },
+          { href: '/marketplace', label: 'Marketplace', Icon: ShoppingBag },
+          { href: '/sell', label: 'Sell', Icon: Plus, special: true },
+          { href: '/messages', label: 'Messages', Icon: MessageCircle, badge: messageBadge },
+          { href: '/notifications', label: 'Notifications', Icon: Bell, badge: notificationBadge },
+        ].map(({ href, label, Icon, badge, special }) => {
+          const active = href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
+          return (
+            <Link href={href} key={href} className={`mobileNavItem ${active ? 'active' : ''} ${special ? 'sellItem' : ''}`} aria-current={active ? 'page' : undefined}>
+              <span className="mobileNavIcon">{active && !special && <span className="mobileNavActivePill" aria-hidden="true" />}<Icon size={special ? 21 : 19} strokeWidth={active ? 2.5 : 2} /></span>
+              <span>{label}</span>
+              {badge && <span className="navCountBadge">{badge}</span>}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   </>;
 }
