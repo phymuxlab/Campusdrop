@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Bell, BellOff, Smartphone } from 'lucide-react';
 import { createClient } from '../lib/supabase';
 
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
+const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || 'BPcFMKiSvJTPfWIxO2kmN_gVHX48dPppurcwpHJNMb1gD622A-y1URy6Ampmd8S_YvvYk38PtnkG1rs6XwyuPik';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -21,6 +21,7 @@ export async function registerPushServiceWorker() {
 export default function PushNotifications() {
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [standalone, setStandalone] = useState(true);
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -29,6 +30,9 @@ export default function PushNotifications() {
   useEffect(() => {
     const ok = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
     setSupported(ok);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    setStandalone(!isIOS || isStandalone);
     if (!ok) return;
     setPermission(Notification.permission);
     (async () => {
@@ -44,6 +48,7 @@ export default function PushNotifications() {
     setBusy(true); setMessage(''); setError('');
     try {
       if (!supported) throw new Error('Push notifications are not supported on this device/browser.');
+      if (!standalone) throw new Error('On iPhone, add CampusDrop to your Home Screen and open it there before enabling notifications.');
       if (!PUBLIC_KEY) throw new Error('Push notifications are not configured yet. Add NEXT_PUBLIC_VAPID_PUBLIC_KEY to the production environment.');
       const nextPermission = await Notification.requestPermission();
       setPermission(nextPermission);
@@ -116,7 +121,7 @@ export default function PushNotifications() {
       {message && <div className="notice">{message}</div>}
       {error && <div className="error">{error}</div>}
       {permission === 'denied' && <p className="muted pushHint">Notifications are blocked in your browser settings. Allow CampusDrop notifications there, then try again.</p>}
-      <p className="muted pushHint">On iPhone, add CampusDrop to your Home Screen first, then enable notifications.</p>
+      {!standalone && <p className="muted pushHint">On iPhone, use Share → Add to Home Screen, open the new CampusDrop icon, then enable notifications.</p>}
     </div>
   </div>;
 }
