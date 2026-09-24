@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ImagePlus, Save, UserRound, ShieldCheck } from 'lucide-react';
 import { createClient } from '../../lib/supabase';
 import { Avatar } from '../../components/avatar';
+import PushNotifications from '../../components/push-notifications';
 
 const presets = ['default:campus', 'default:drop', 'default:green', 'default:classic'];
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -105,6 +106,7 @@ export default function Settings() {
       {error&&<div className="error">{error}</div>}{message&&<div className="notice">{message}</div>}
       <button className="btn green" onClick={save} disabled={saving}><Save size={17}/>{saving?'Saving...':'Save settings'}</button>
     </div>
+    <PushNotifications />
     <div className="panel settingsInfo"><UserRound size={20}/><div><b>Account email</b><div className="muted">{user?.email || 'Loading...'}</div></div></div>
   </div></main>;
 }

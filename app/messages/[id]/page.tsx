@@ -25,6 +25,11 @@ function isImage(name?: string | null) {
   return !!name && /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(name);
 }
 
+function displayPushName(name: string) {
+  const clean = name.includes('@') ? name.split('@')[0] : name;
+  return `${clean} sent you a message`;
+}
+
 export default function Chat() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -172,6 +177,10 @@ export default function Chat() {
       }).select().single();
       if (insertError) throw insertError;
       setMsgs((current) => current.some((m) => m.id === inserted.id) ? current : [...current, inserted]);
+      const recipientId = other?.id;
+      if (recipientId) {
+        void supabase.functions.invoke('push-notify', { body: { user_ids: [recipientId], conversation_id: id, title: displayPushName(user?.user_metadata?.full_name || user?.email || 'CampusDrop student'), body: body.trim() || 'Sent you an image.', url: `/messages/${id}` } });
+      }
       setBody('');
       clearAttachment();
     } catch (err: any) {

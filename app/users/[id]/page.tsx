@@ -19,17 +19,22 @@ export default function PublicUserProfile() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      const supabase = createClient();
-      const [{ data: p, error: profileError }, { data: l }] = await Promise.all([
-        supabase.from('profiles').select('id,full_name,campus,location,avatar_url,created_at').eq('id', id).maybeSingle(),
-        supabase.from('listings').select('id,title,price,campus,status,created_at,listing_images(url,storage_path)').eq('seller_id', id).eq('status', 'available').order('created_at', { ascending: false }),
+    const supabase=createClient(); let mounted=true; let channel:any;
+    const load=async()=>{
+      const [{data:p,error:profileError},{data:l}]=await Promise.all([
+        supabase.from('profiles').select('id,full_name,campus,location,avatar_url,created_at').eq('id',id).maybeSingle(),
+        supabase.from('listings').select('id,title,price,campus,status,created_at,listing_images(url,storage_path)').eq('seller_id',id).eq('status','available').order('created_at',{ascending:false})
       ]);
-      if (profileError || !p) setError('This profile could not be found.');
-      else setProfile(p);
-      setListings((l || []) as Listing[]);
-      setLoading(false);
-    })();
+      if(!mounted)return;
+      if(profileError||!p)setError('This profile could not be found.'); else {setError('');setProfile(p)}
+      setListings((l||[]) as Listing[]); setLoading(false);
+    };
+    load();
+    channel=supabase.channel(`public-profile-${id}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'profiles',filter:`id=eq.${id}`},()=>load())
+      .on('postgres_changes',{event:'*',schema:'public',table:'listings',filter:`seller_id=eq.${id}`},()=>load())
+      .subscribe();
+    return()=>{mounted=false;if(channel)supabase.removeChannel(channel)};
   }, [id]);
 
   if (loading) return <main className="section"><div className="container"><div className="skeletonBlock"><span className="skeleton skeletonAvatar"/><span className="skeleton skeletonLine"/><span className="skeleton skeletonLine medium"/></div></div></main>;

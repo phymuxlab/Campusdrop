@@ -27,18 +27,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     let mounted = true;
+    let profileChannel: any;
+    let verificationChannel: any;
+    let messagesChannel: any;
+    let notificationsChannel: any;
 
-    const loadProfile = async (currentUser: any) => {
-      if (!currentUser) {
-        if (mounted) { setUser(null); setProfile(null); }
-        return;
-      }
-      if (mounted) setUser(currentUser);
-      const { data } = await supabase.from('profiles').select('full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle();
-      if (mounted) setProfile(data || null);
-    };
-
-    const loadUnread = async (currentUser: any) => {
+    const refreshCounts = async (currentUser: any) => {
       if (!currentUser) {
         if (mounted) { setUnreadMessages(0); setUnreadNotifications(0); }
         return;
@@ -53,27 +47,69 @@ export default function AppShell({ children }: { children: ReactNode }) {
       }
     };
 
-    supabase.auth.getUser().then(({ data }) => {
-      loadProfile(data.user);
-      loadUnread(data.user);
-    });
+    const loadProfile = async (currentUser: any) => {
+      if (!currentUser) {
+        if (mounted) { setUser(null); setProfile(null); }
+        await refreshCounts(null);
+        return;
+      }
+      if (mounted) setUser(currentUser);
+      const { data } = await supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle();
+      if (mounted) setProfile(data || null);
+      await refreshCounts(currentUser);
+
+      profileChannel = supabase.channel(`app-profile-${currentUser.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${currentUser.id}` }, (payload) => {
+          if (payload.eventType === 'DELETE') {
+            if (mounted) setProfile(null);
+          } else if (mounted) {
+            setProfile(payload.new);
+          }
+        })
+        .subscribe();
+
+      verificationChannel = supabase.channel(`app-verification-${currentUser.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'student_verifications', filter: `user_id=eq.${currentUser.id}` }, async () => {
+          const { data: fresh } = await supabase.from('profiles').select('id,full_name,campus,avatar_url,role').eq('id', currentUser.id).maybeSingle();
+          if (mounted) setProfile(fresh || null);
+        })
+        .subscribe();
+
+      messagesChannel = supabase.channel(`app-unread-messages-${currentUser.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { refreshCounts(currentUser); })
+        .subscribe();
+
+      notificationsChannel = supabase.channel(`app-unread-notifications-${currentUser.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUser.id}` }, (payload) => {
+          refreshCounts(currentUser);
+          if (payload.eventType === 'INSERT') {
+            const n: any = payload.new;
+            void supabase.functions.invoke('push-notify', { body: { user_ids: [currentUser.id], title: n.title || 'CampusDrop', body: n.body || 'You have a new notification.', url: n.listing_id ? `/product/${n.listing_id}` : '/notifications' } });
+          }
+        })
+        .subscribe();
+    };
+
+    supabase.auth.getUser().then(({ data }) => loadProfile(data.user));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       window.setTimeout(() => {
+        if (profileChannel) supabase.removeChannel(profileChannel);
+        if (verificationChannel) supabase.removeChannel(verificationChannel);
+        if (messagesChannel) supabase.removeChannel(messagesChannel);
+        if (notificationsChannel) supabase.removeChannel(notificationsChannel);
+        profileChannel = verificationChannel = messagesChannel = notificationsChannel = null;
         loadProfile(session?.user || null);
-        loadUnread(session?.user || null);
       }, 0);
     });
 
-    const channel = supabase.channel('campusdrop-unread-badges')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-        supabase.auth.getUser().then(({ data }) => loadUnread(data.user));
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        supabase.auth.getUser().then(({ data }) => loadUnread(data.user));
-      })
-      .subscribe();
-
-    return () => { mounted = false; listener.subscription.unsubscribe(); supabase.removeChannel(channel); };
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+      if (profileChannel) supabase.removeChannel(profileChannel);
+      if (verificationChannel) supabase.removeChannel(verificationChannel);
+      if (messagesChannel) supabase.removeChannel(messagesChannel);
+      if (notificationsChannel) supabase.removeChannel(notificationsChannel);
+    };
   }, []);
 
   async function signOut() {
@@ -84,6 +120,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const avatarUrl = profile?.avatar_url;
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'CampusDrop student';
+  const messageBadge = unreadMessages > 99 ? '99+' : unreadMessages > 0 ? String(unreadMessages) : '';
+  const notificationBadge = unreadNotifications > 99 ? '99+' : unreadNotifications > 0 ? String(unreadNotifications) : '';
 
   return <>
     <header className="nav">
@@ -96,11 +134,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <Link href="/">Home</Link>
           <Link href="/marketplace">Marketplace</Link>
           <Link href="/sell">Sell</Link>
-          <Link href="/messages" className="navTextBadge">Messages{unreadMessages > 0 && <span className="unreadBadge navTextBadgeCount">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}</Link>
+          <Link href="/messages" className="navBadgeLink">Messages{messageBadge && <span className="navCountBadge">{messageBadge}</span>}</Link>
         </nav>
         <div className="actions">
           {user ? <>
-            <Link className="iconBtn navBadgeWrap" href="/notifications" aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : "Notifications"}><Bell size={18} />{unreadNotifications > 0 && <span className="unreadBadge">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}</Link>
+            <Link className="iconBtn navIconBadge" href="/notifications" aria-label={notificationBadge ? `Notifications, ${notificationBadge} unread` : 'Notifications'}><Bell size={18} />{notificationBadge && <span className="navCountBadge">{notificationBadge}</span>}</Link>
             <div className="accountMenu">
               <button className="avatarButton" aria-label="Open account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)}>
                 <Avatar url={avatarUrl} name={displayName} size="sm" />
@@ -110,7 +148,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <div className="accountSummary"><Avatar url={avatarUrl} name={displayName} size="md" /><div><VerifiedName userId={user?.id} name={displayName}/><span>{profile?.campus || 'Campus not set'}</span></div></div>
                 <Link href="/profile" onClick={() => setMenuOpen(false)}><Avatar url={avatarUrl} size="sm" /> Profile</Link>
                 <Link href="/settings" onClick={() => setMenuOpen(false)}><Settings size={17} /> Settings</Link>
-                
                 <button onClick={signOut}><LogOut size={17} /> Sign out</button>
               </div>}
             </div>
@@ -126,8 +163,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <Link href="/"><Home size={19} /><span>Home</span></Link>
       <Link href="/marketplace"><ShoppingBag size={19} /><span>Marketplace</span></Link>
       <Link href="/sell"><Plus size={21} /><span>Sell</span></Link>
-      <Link href="/messages" aria-label={unreadMessages ? `Messages, ${unreadMessages} unread` : "Messages"}><span className="navBadgeWrap"><MessageCircle size={19} />{unreadMessages > 0 && <span className="unreadBadge">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}</span><span>Messages</span></Link>
-      <Link href="/notifications" aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : "Notifications"}><span className="navBadgeWrap"><Bell size={19} />{unreadNotifications > 0 && <span className="unreadBadge">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}</span><span>Notifications</span></Link>
+      <Link href="/messages" className="navIconBadge"><MessageCircle size={19} /><span>Messages</span>{messageBadge && <span className="navCountBadge">{messageBadge}</span>}</Link>
+      <Link href="/notifications" className="navIconBadge"><Bell size={19} /><span>Notifications</span>{notificationBadge && <span className="navCountBadge">{notificationBadge}</span>}</Link>
     </nav>
   </>;
 }
