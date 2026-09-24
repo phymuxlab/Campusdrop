@@ -6,8 +6,6 @@ export const metadata = {
   title: 'CampusDrop — Your Campus. Your Marketplace.',
   description: 'Buy, sell and connect with students on campus.',
   icons: { icon: '/favicon.png' },
-  manifest: '/manifest.webmanifest',
-  appleWebApp: { capable: true, title: 'CampusDrop', statusBarStyle: 'default' },
 };
 
 
